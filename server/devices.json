@@ -1,0 +1,15 @@
+{
+  "devices": [
+    {
+      "entrypoint": "reov-entry-dropstrommel",
+      "location": "roev",
+      "ip": "192.168.151.15",
+      "mac_address": "B8:27:EB:06:17:CA",
+      "hardware": "RPi 3B+",
+      "scanner": "Honeywell 1202g",
+      "token": "CHANGE_ME_reov",
+      "notes": "Wird bald durch EdgeBox 200 ersetzt"
+    }
+  ]
+}
+

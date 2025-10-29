@@ -1,0 +1,8 @@
+{
+  "entrypoint": "reov-entry-dropstrommel",
+  "hostname": "reov-entry-dropstrommel",
+  "uptime_s": 123456,
+  "load1": 0.12,
+  "mem_free_mb": 512,
+  "agent": { "ver": "0.1.0" }
+}
