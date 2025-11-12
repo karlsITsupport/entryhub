@@ -6,6 +6,8 @@ from fastapi import FastAPI, Header, HTTPException, Depends
 from pydantic import BaseModel
 from sqlmodel import SQLModel, Field, create_engine, Session, select
 from datetime import datetime, timezone, timedelta
+from fastapi.middleware.cors import CORSMiddleware
+
 # ...
 def _as_aware_utc(dt: datetime | None) -> datetime | None:
     if dt is None:
@@ -29,7 +31,7 @@ class Device(SQLModel, table=True):
     ip: Optional[str] = None
     mac_address: Optional[str] = None
     hardware: Optional[str] = None
-    scanner: Optional[str] = None
+    access_type: Optional[str] = None
     token: str
     notes: Optional[str] = None
     last_seen: Optional[datetime] = None
@@ -62,7 +64,7 @@ class DeviceOut(BaseModel):
     ip: Optional[str]
     mac_address: Optional[str]
     hardware: Optional[str]
-    scanner: Optional[str]
+    access_type: Optional[str]
     notes: Optional[str]
     last_seen: Optional[datetime]
     online: bool
@@ -77,6 +79,13 @@ class DeviceOut(BaseModel):
 # FastAPI-App
 # --------------------------------------------------------------------
 app = FastAPI(title="EntryHub API", version="0.2.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],            # oder trage hier deine genaue URL ein, z.B. "http://10.10.16.70"
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+)
 
 
 @app.get("/ping")
@@ -158,7 +167,7 @@ def list_devices():
                 ip=d.ip,
                 mac_address=d.mac_address,
                 hardware=d.hardware,
-                scanner=d.scanner,
+                access_type=d.access_type,
                 notes=d.notes,
                 last_seen=ls,
                 online=online,

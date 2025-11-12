@@ -1,14 +1,24 @@
 {
   "devices": [
     {
-      "entrypoint": "reov-entry-dropstrommel",
+      "entrypoint": "roev-entry-zuckerstange-2",
       "location": "roev",
-      "ip": "192.168.151.15",
-      "mac_address": "B8:27:EB:06:17:CA",
+      "ip": "192.168.134.76",
+      "mac_address": "B8:27:EB:61:FB:76",
       "hardware": "RPi 3B+",
-      "scanner": "Honeywell 1202g",
-      "token": "CHANGE_ME_reov",
+      "access_type": "Sunkid",
+      "token": "bb5393ef1dbb6c399332f9deb1dc02fa8577caa5c7c1ff11",
       "notes": "Wird bald durch EdgeBox 200 ersetzt"
+    },
+    {
+      "entrypoint": "roev-entry-zuckerstange-3",
+      "location": "roev",
+      "ip": "192.168.134.8",
+      "mac_address": "B8:27:EB:A3:DE:3A",
+      "hardware": "RPi 3B+",
+      "access_type": "Sunkid",
+      "token": "373447b3889c542bc8cccea20115fec514f0c9e0f5924aa5",
+      "notes": "Der 3. Slot der Zuckerstange"
     }
   ]
 }
