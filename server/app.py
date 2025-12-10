@@ -2,7 +2,7 @@ import os, json
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
-from fastapi import FastAPI, Header, HTTPException, Depends
+from fastapi import FastAPI, Header, HTTPException, Depends, Request
 from pydantic import BaseModel
 from sqlmodel import SQLModel, Field, create_engine, Session, select
 from datetime import datetime, timezone, timedelta
@@ -133,7 +133,11 @@ def auth_device(authorization: Optional[str] = Header(default=None)) -> Device:
 # Heartbeat-Endpoint
 # --------------------------------------------------------------------
 @app.post("/api/v1/heartbeat")
-def post_heartbeat(payload: HeartbeatIn, device: Device = Depends(auth_device)):
+def post_heartbeat(
+    payload: HeartbeatIn,
+    device: Device = Depends(auth_device),
+    request: Request = None,   # Request-Objekt dazu
+):
     if payload.entrypoint != device.entrypoint:
         raise HTTPException(status_code=400, detail="entrypoint mismatch")
     now = datetime.now(timezone.utc)
@@ -145,6 +149,8 @@ def post_heartbeat(payload: HeartbeatIn, device: Device = Depends(auth_device)):
         d.load1 = payload.load1
         d.mem_free_mb = payload.mem_free_mb
         d.agent_ver = (payload.agent or {}).get("ver") if payload.agent else None
+        if request is not None and request.client:
+            d.ip = request.client.host      # hier kommt die „echte“ IP her
         s.add(d)
         s.commit()
     return {"status": "ok", "now": now.isoformat()}
