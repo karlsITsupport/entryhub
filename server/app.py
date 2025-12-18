@@ -2,11 +2,12 @@ import os, json
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
-from fastapi import FastAPI, Header, HTTPException, Depends, Request
+from fastapi import FastAPI, Header, HTTPException, Depends, Request, Form, Query
 from pydantic import BaseModel
 from sqlmodel import SQLModel, Field, create_engine, Session, select
 from datetime import datetime, timezone, timedelta
 from fastapi.middleware.cors import CORSMiddleware
+import subprocess
 
 # ...
 def _as_aware_utc(dt: datetime | None) -> datetime | None:
@@ -91,6 +92,64 @@ app.add_middleware(
 @app.get("/ping")
 def ping():
     return {"status": "ok"}
+
+# --------------------------------------------------------------------
+# Die Route für Terminal-Befehle
+# --------------------------------------------------------------------
+@app.post("/api/v1/devices/{entrypoint}/exec")
+def exec_cmd(entrypoint: str, action: str):
+    with Session(engine) as s:
+        d = s.get(Device, entrypoint)
+        if not d or not d.ip:
+            raise HTTPException(404, "device not found or no IP")
+
+    result = subprocess.run(
+        [
+            "curl", "-s", "-X", "POST",
+            f"http://{d.ip}/admin/ajax.php",
+            "-d", f"function={action}"
+        ],
+        capture_output=True,
+        text=True,
+        timeout=5
+    )
+
+    return {
+        "action": action,
+        "returncode": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
+
+
+
+# --------------------------------------------------------------------
+# Die Diag-Route
+# --------------------------------------------------------------------
+@app.post("/api/v1/devices/{entrypoint}/diag")
+def diag(entrypoint: str, cmd: str = Form(...)):
+    with Session(engine) as s:
+        d = s.get(Device, entrypoint)
+        if not d or not d.ip:
+            raise HTTPException(404, "device not found or no IP")
+
+    r = subprocess.run(
+        [
+            "curl", "-sS", "--fail",
+            "-X", "POST", f"http://{d.ip}/admin/ajax.php",
+            "--data-urlencode", "function=diag",
+            "--data-urlencode", f"cmd={cmd}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=8
+    )
+
+    if r.returncode != 0:
+        raise HTTPException(502, f"Pi call failed: {r.stderr.strip()}")
+
+    # r.stdout ist JSON von ajax.php (wenn du es so implementiert hast)
+    return json.loads(r.stdout)
 
 
 # --------------------------------------------------------------------
