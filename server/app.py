@@ -22,10 +22,65 @@ ONLINE_GRACE_S = int(os.getenv("ONLINE_GRACE_S", "120"))
 engine = create_engine(DB_URL, connect_args={"check_same_thread": False})
 
 
+# --------------------------------------------------------------------
+# Den letzten Block des Logs ausgeben
+# --------------------------------------------------------------------
+
+def classify_scan(block: list[str]) -> dict:
+    result = {
+        "barcode": None,
+        "result": "unknown",
+        "details": None,
+        "lines": block,
+    }
+
+    for line in block:
+        if "got barcode" in line:
+            result["barcode"] = line.split("'")[1]
+
+        if "access granted" in line:
+            result["result"] = "granted"
+
+        if "ticket suspended / reentrance" in line:
+            result["result"] = "denied"
+            result["details"] = "ticket suspended / reentrance"
+
+        if "denied finaly by index" in line:
+            result["result"] = "denied"
+            result["details"] = line.split(" - ", 1)[1]
+
+    return result
+
+
+def extract_last_scan(lines: list[str]) -> list[str] | None:
+    end = None
+    start = None
+
+    # 1) Ende finden
+    for i in range(len(lines) - 1, -1, -1):
+        if "INFO Main:100 - wait for barcode" in lines[i]:
+            end = i
+            break
+
+    if end is None:
+        return None
+
+    # 2) Start finden (davor!)
+    for j in range(end - 1, -1, -1):
+        if "INFO EntryClient:701 - got barcode" in lines[j]:
+            start = j
+            break
+
+    if start is None:
+        return None
+
+    return lines[start:end]
+
 
 # --------------------------------------------------------------------
 # FastAPI-App
 # --------------------------------------------------------------------
+
 app = FastAPI(title="EntryHub API", version="0.2.0")
 app.add_middleware(
     CORSMiddleware,
@@ -35,14 +90,15 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
-
 @app.get("/ping")
 def ping():
     return {"status": "ok"}
 
+
 # --------------------------------------------------------------------
 # Die Route für Terminal-Befehle
 # --------------------------------------------------------------------
+
 @app.post("/api/v1/devices/{entrypoint}/exec")
 def exec_cmd(entrypoint: str, action: str):
     with Session(engine) as s:
@@ -70,8 +126,62 @@ def exec_cmd(entrypoint: str, action: str):
 
 
 # --------------------------------------------------------------------
+# Das Log fetchen
+# --------------------------------------------------------------------
+
+@app.get("/api/v1/devices/{entrypoint}/last-scan")
+def get_last_scan(entrypoint: str, lines: int = 200):
+    with Session(engine) as s:
+        d = s.get(Device, entrypoint)
+        if not d or not d.ip:
+            raise HTTPException(404, "device not found or no IP")
+
+    cmd = f"tail -n {int(lines)} /var/log/korona/log.out"
+    r = subprocess.run(
+        [
+            "curl", "-sS", "--fail",
+            "-X", "POST", f"http://{d.ip}/admin/ajax.php",
+            "--data-urlencode", "function=diag",
+            "--data-urlencode", f"cmd={cmd}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=8
+    )
+
+    if r.returncode != 0:
+        raise HTTPException(502, r.stderr.strip())
+
+    out = (r.stdout or "").strip()
+    if not out:
+        raise HTTPException(502, "Pi call returned empty stdout")
+
+    try:
+        payload = json.loads(out)
+    except json.JSONDecodeError:
+        raise HTTPException(
+            502,
+            f"Pi call did not return JSON. First 200 chars: {out[:200]!r}"
+        )
+
+    # ajax.php liefert {"cmd": "...", "output": ["zeile", "zeile", ...]}
+    out_lines = payload.get("output")
+    if not isinstance(out_lines, list) or not out_lines:
+        return {"found": False}
+
+    log_lines = [str(x) for x in out_lines]
+
+    block = extract_last_scan(log_lines)
+    if not block:
+        return {"found": False}
+
+    return {"found": True, **classify_scan(block)}
+
+
+# --------------------------------------------------------------------
 # Die Diag-Route
 # --------------------------------------------------------------------
+
 @app.post("/api/v1/devices/{entrypoint}/diag")
 def diag(entrypoint: str, cmd: str = Form(...)):
     with Session(engine) as s:
@@ -101,6 +211,7 @@ def diag(entrypoint: str, cmd: str = Form(...)):
 # --------------------------------------------------------------------
 # Hilfsfunktionen
 # --------------------------------------------------------------------
+
 def load_devices():
     if not os.path.exists(DEVICES_FILE):
         return []
@@ -137,6 +248,7 @@ def auth_device(authorization: Optional[str] = Header(default=None)) -> Device:
 # --------------------------------------------------------------------
 # Heartbeat-Endpoint
 # --------------------------------------------------------------------
+
 @app.post("/api/v1/heartbeat")
 def post_heartbeat(
     payload: HeartbeatIn,
@@ -164,6 +276,7 @@ def post_heartbeat(
 # --------------------------------------------------------------------
 # Geräte-Übersicht
 # --------------------------------------------------------------------
+
 @app.get("/api/v1/devices", response_model=list[DeviceOut])
 def list_devices():
     now = datetime.now(timezone.utc)
