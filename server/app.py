@@ -48,7 +48,6 @@ def classify_scan(block: list[str]) -> dict:
         if "denied finaly by index" in line:
             result["result"] = "denied"
             result["details"] = line.split(" - ", 1)[1]
-
     return result
 
 
@@ -56,21 +55,17 @@ def extract_last_scan(lines: list[str]) -> list[str] | None:
     end = None
     start = None
 
-    # 1) Ende finden
     for i in range(len(lines) - 1, -1, -1):
         if "INFO Main:100 - wait for barcode" in lines[i]:
             end = i
             break
-
     if end is None:
         return None
 
-    # 2) Start finden (davor!)
     for j in range(end - 1, -1, -1):
-        if "INFO EntryClient:701 - got barcode" in lines[j]:
+        if "INFO EntryClient:" in lines[j] and " - got barcode" in lines[j]:
             start = j
             break
-
     if start is None:
         return None
 

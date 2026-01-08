@@ -39,6 +39,16 @@
       "access_type": "",
       "token": "9e64eeb486ea9801e65b37ba1c158a04aa56abb9ef0ca800",
       "notes": ""
+    },
+    {
+      "entrypoint": "neue_entrybox",
+      "location": "roev",
+      "ip": "192.168.134.82",
+      "mac_address": "b8:27:eb:61:fb:76",
+      "hardware": "RPi3b+",
+      "access_type": "Portalum",
+      "token": "2250588037a15882c0c61bf268922f4d8514301a40c5e2f3",
+      "notes": "Erste Installation an meinem Platz"
     }
   ]
 }

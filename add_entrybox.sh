@@ -1,12 +1,9 @@
 #!/usr/bin/env bash
 # add_entrybox.sh
 # Auf dem SERVER ausführen.
-# Installiert EntryAgent auf einer EntryBox und trägt sie in devices.json + DB ein.
 #
 # Nutzung:
 #   sudo ./add_entrybox.sh <BOX_IP> [ENTRYPOINT]
-#
-# Wenn ENTRYPOINT leer: wird der Hostname der Box verwendet.
 #
 # Voraussetzungen auf dem SERVER:
 #   - sshpass, ssh, scp, jq, sqlite3, openssl
@@ -18,7 +15,7 @@
 
 set -euo pipefail
 
-SERVER_URL="${SERVER_URL:http://10.10.16.70:8080}"  # später per DNS auflösen
+SERVER_URL="${SERVER_URL:-http://10.10.16.70:8080}"   # Default, kann per Env überschrieben werden
 SSH_USER="korona"
 SSH_PASS="korona"
 
@@ -57,7 +54,6 @@ MAC=$(sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5
   "${SSH_USER}@${BOX_IP}" \
   'cat /sys/class/net/eth0/address 2>/dev/null || cat /sys/class/net/wlan0/address 2>/dev/null || ip link | awk "/ether/ {print \$2; exit}"' \
   2>/dev/null | tr -d '\r')
-
 if [[ -z "${MAC}" ]]; then
   echo "Konnte MAC-Adresse von $BOX_IP nicht ermitteln."
   exit 5
@@ -69,23 +65,92 @@ fi
 
 echo ">> Verwende ENTRYPOINT=${ENTRYPOINT}, HOSTNAME=${HOSTNAME}, MAC=${MAC}"
 
+echo ">> Bitte Metadaten eingeben (Enter = leer) ..."
+read -r -p "Location (z.B. Rövershagen): " LOCATION
+read -r -p "Hardware (z.B. RPi3B+, AudreyA5, SP-850): " HARDWARE
+read -r -p "Zugangstyp (z.B. Drehkreuz, Schranke, Eingang): " ACCESS_TYPE
+read -r -p "Notes (optional): " NOTES
+
 echo ">> Generiere Token ..."
 TOKEN=$(openssl rand -hex 24)
-echo "Token: ${TOKEN}"
+
+echo
+echo "================= ZUSAMMENFASSUNG ================="
+echo "BOX_IP:      ${BOX_IP}"
+echo "ENTRYPOINT:  ${ENTRYPOINT}"
+echo "HOSTNAME:    ${HOSTNAME}"
+echo "MAC:         ${MAC}"
+echo "SERVER_URL:  ${SERVER_URL}"
+echo "LOCATION:    ${LOCATION:-<leer>}"
+echo "HARDWARE:    ${HARDWARE:-<leer>}"
+echo "ACCESS_TYPE: ${ACCESS_TYPE:-<leer>}"
+echo "NOTES:       ${NOTES:-<leer>}"
+echo "TOKEN:       ${TOKEN}"
+echo "==================================================="
+echo
+read -r -p "Installieren und eintragen? (yes/no): " CONFIRM
+if [[ "${CONFIRM}" != "yes" ]]; then
+  echo "Abgebrochen."
+  exit 0
+fi
 
 echo ">> Trage Gerät in devices.json ein ..."
 TMP_JSON=$(mktemp)
 jq --arg ep "$ENTRYPOINT" \
+   --arg loc "$LOCATION" \
    --arg ip "$BOX_IP" \
    --arg mac "$MAC" \
+   --arg hw "$HARDWARE" \
+   --arg at "$ACCESS_TYPE" \
    --arg tok "$TOKEN" \
-   '.devices += [{entrypoint:$ep, location:"", ip:$ip, mac_address:$mac, hardware:"RPi", access_type:"", token:$tok, notes:""}]' \
+   --arg notes "$NOTES" \
+   '.devices += [{
+      entrypoint:$ep,
+      location:$loc,
+      ip:$ip,
+      mac_address:$mac,
+      hardware:$hw,
+      access_type:$at,
+      token:$tok,
+      notes:$notes
+   }]' \
    "$DEVICES_JSON" > "$TMP_JSON"
 mv "$TMP_JSON" "$DEVICES_JSON"
 
 echo ">> Trage Gerät in SQLite-DB ein ..."
 sqlite3 "$DB_PATH" \
-  "INSERT OR REPLACE INTO device (entrypoint, ip, mac_address, token) VALUES ('$ENTRYPOINT', '$BOX_IP', '$MAC', '$TOKEN');"
+  "INSERT OR REPLACE INTO device (entrypoint, location, ip, mac_address, hardware, access_type, token, notes)
+   VALUES (
+     '$(printf "%s" "$ENTRYPOINT" | sed "s/'/''/g")',
+     '$(printf "%s" "$LOCATION" | sed "s/'/''/g")',
+     '$(printf "%s" "$BOX_IP" | sed "s/'/''/g")',
+     '$(printf "%s" "$MAC" | sed "s/'/''/g")',
+     '$(printf "%s" "$HARDWARE" | sed "s/'/''/g")',
+     '$(printf "%s" "$ACCESS_TYPE" | sed "s/'/''/g")',
+     '$(printf "%s" "$TOKEN" | sed "s/'/''/g")',
+     '$(printf "%s" "$NOTES" | sed "s/'/''/g")'
+   );"
+
+AJAX_SRC="/opt/entryhub/entrybox_files/ajax.php"
+AJAX_DST="/var/www/admin/ajax.php"
+
+if [[ ! -f "$AJAX_SRC" ]]; then
+  echo "ajax.php nicht gefunden: $AJAX_SRC"
+  exit 10
+fi
+
+echo ">> Kopiere ajax.php auf die Box (Backup + überschreiben) ..."
+
+# Backup (falls vorhanden)
+sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no "${SSH_USER}@${BOX_IP}" \
+  "if [[ -f '$AJAX_DST' ]]; then sudo cp -a '$AJAX_DST' '${AJAX_DST}.bak.$(date +%Y%m%d-%H%M%S)'; fi"
+
+# Copy nach /tmp und dann mit sudo an Ziel
+sshpass -p "$SSH_PASS" scp -o StrictHostKeyChecking=no "$AJAX_SRC" "${SSH_USER}@${BOX_IP}:/tmp/ajax.php"
+
+sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no "${SSH_USER}@${BOX_IP}" \
+  "sudo install -o www-data -g www-data -m 0644 /tmp/ajax.php '$AJAX_DST' && rm -f /tmp/ajax.php"
+
 
 echo ">> Installiere EntryAgent auf der Box $BOX_IP ..."
 
